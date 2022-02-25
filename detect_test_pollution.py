@@ -12,8 +12,6 @@ from typing import Sequence
 
 import pytest
 
-# pytest "plugin" until pytest has a machine-readable output
-
 TESTIDS_INPUT_OPTION = '--dtp-testids-input-file'
 TESTIDS_OUTPUT_OPTION = '--dtp-testids-output-file'
 RESULTS_OUTPUT_OPTION = '--dtp-results-output-file'
