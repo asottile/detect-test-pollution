@@ -140,6 +140,29 @@ double checking we found it...
 
 [bug in pytest]: https://github.com/pytest-dev/pytest/issues/9708
 
+## fuzzing
+
+`detect-test-pollution` can also be used to "fuzz" out failing tests.
+
+it does this by shuffling the test ids and running the testsuite until it
+fails.
+
+here's an example execution on a silly testsuite:
+
+```console
+$ detect-test-pollution --fuzz --tests t.py
+discovering all tests...
+-> discovered 1002 tests!
+run 1...
+-> OK!
+run 2...
+-> found failing test!
+try `detect-test-pollution --failing-test t.py::test_k --tests t.py`!
+```
+
+afterwards you can use the normal mode of `detect-test-pollution` to find the
+failing pair.
+
 ## supported test runners
 
 at the moment only `pytest` is supported -- though in theory the tool could
