@@ -7,6 +7,7 @@ import pytest
 import detect_test_pollution
 from detect_test_pollution import _common_testpath
 from detect_test_pollution import _discover_tests
+from detect_test_pollution import _format_cmd
 from detect_test_pollution import _parse_testids_file
 from detect_test_pollution import _passed_with_testlist
 from detect_test_pollution import main
@@ -134,6 +135,22 @@ def test_passed_with_testlist_passing(tmp_path):
     f = tmp_path.joinpath('t.py')
     f.write_text('def test1(): pass\ndef test2(): pass\n')
     assert _passed_with_testlist(f, 't.py::test2', ['t.py::test1']) is True
+
+
+def test_format_cmd_with_tests():
+    ret = _format_cmd('t.py::test1', 'this t.py', None)
+    assert ret == (
+        'detect-test-pollution --failing-test t.py::test1 '
+        "--tests 'this t.py'"
+    )
+
+
+def test_format_cmd_with_testids_filename():
+    ret = _format_cmd('t.py::test1', None, 't.txt')
+    assert ret == (
+        'detect-test-pollution --failing-test t.py::test1 '
+        '--testids-filename t.txt'
+    )
 
 
 def test_integration_missing_failing_test(tmpdir, capsys):
@@ -276,4 +293,42 @@ running step 1:
 - 2 tests remaining (about 1 steps)
 double checking we found it...
 -> the polluting test is: t.py::test_k2
+'''
+
+
+def test_integration_fuzz(tmpdir, capsys):
+    src = '''\
+k = 1
+
+def test_other():
+    pass
+
+def test_other2():
+    pass
+
+def test_k():
+    assert k == 1
+
+def test_k2():
+    global k
+    k = 2
+    assert k == 2
+'''
+
+    f = tmpdir.join('t.py')
+    f.write(src)
+
+    with tmpdir.as_cwd():
+        ret = main(('--fuzz', '--tests', str(f)))
+    assert ret == 1
+
+    out, err = capsys.readouterr()
+    assert out == f'''\
+discovering all tests...
+-> discovered 4 tests!
+run 1...
+-> OK!
+run 2...
+-> found failing test!
+try `detect-test-pollution --failing-test t.py::test_k --tests {f}`!
 '''

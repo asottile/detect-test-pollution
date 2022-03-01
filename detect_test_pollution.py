@@ -5,6 +5,8 @@ import contextlib
 import json
 import math
 import os.path
+import random
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -135,56 +137,89 @@ def _passed_with_testlist(path: str, test: str, testids: list[str]) -> bool:
         return contents[test]
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        '--failing-test',
-        required=True,
-        help=(
-            'the identifier of the failing test, '
-            'for example `tests/my_test.py::test_name_here`'
-        ),
-    )
-    mutex = parser.add_mutually_exclusive_group(required=True)
-    mutex.add_argument(
-        '--tests',
-        help='where tests will be discovered from, often `--tests=tests/',
-    )
-    mutex.add_argument(
-        '--testids-file',
-        help='optional pre-discovered test ids (one per line)',
-    )
-    args = parser.parse_args(argv)
-
-    # step 1: discover all the tests
-    print('discovering all tests...')
-    if args.testids_file:
-        testids = _parse_testids_file(args.testids_file)
-        print(f'-> pre-discovered {len(testids)} tests!')
+def _format_cmd(
+        victim: str,
+        cmd_tests: str | None,
+        cmd_testids_filename: str | None,
+) -> str:
+    args = ['detect-test-pollution', '--failing-test', victim]
+    if cmd_tests is not None:
+        args.extend(('--tests', cmd_tests))
+    elif cmd_testids_filename is not None:
+        args.extend(('--testids-filename', cmd_testids_filename))
     else:
-        testids = _discover_tests(args.tests)
-        print(f'-> discovered {len(testids)} tests!')
+        raise AssertionError('unreachable?')
+    return ' '.join(shlex.quote(part) for part in args)
 
-    testpath = _common_testpath(testids)
 
-    if args.failing_test not in testids:
+def _fuzz(
+        testpath: str,
+        testids: list[str],
+        cmd_tests: str | None,
+        cmd_testids_filename: str | None,
+) -> int:
+    # make shuffling "deterministic"
+    r = random.Random()
+    r.seed(1542676187, version=2)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        testids_filename = os.path.join(tmpdir, 'testids.txt')
+        results_json = os.path.join(tmpdir, 'results.json')
+
+        i = 0
+        while True:
+            i += 1
+            print(f'run {i}...')
+
+            r.shuffle(testids)
+            with open(testids_filename, 'w') as f:
+                for testid in testids:
+                    f.write(f'{testid}\n')
+
+            try:
+                _run_pytest(
+                    testpath,
+                    '--maxfail=1',
+                    # use `=` to avoid pytest's basedir detection
+                    f'{TESTIDS_INPUT_OPTION}={testids_filename}',
+                    f'{RESULTS_OUTPUT_OPTION}={results_json}',
+                )
+            except subprocess.CalledProcessError:
+                print('-> found failing test!')
+            else:
+                print('-> OK!')
+                continue
+
+            with open(results_json) as f:
+                contents = json.load(f)
+
+            testids = list(contents)
+            victim = testids[-1]
+
+            cmd = _format_cmd(victim, cmd_tests, cmd_testids_filename)
+            print(f'try `{cmd}`!')
+            return 1
+
+
+def _bisect(testpath: str, failing_test: str, testids: list[str]) -> int:
+    if failing_test not in testids:
         print('-> failing test was not part of discovered tests!')
         return 1
 
     # step 2: make sure the failing test passes on its own
     print('ensuring test passes by itself...')
-    if _passed_with_testlist(testpath, args.failing_test, []):
+    if _passed_with_testlist(testpath, failing_test, []):
         print('-> OK!')
     else:
         print('-> test failed! (output printed above)')
         return 1
 
     # we'll be bisecting testids
-    testids.remove(args.failing_test)
+    testids.remove(failing_test)
 
     # step 3: ensure test fails
     print('ensuring test fails with test group...')
-    if _passed_with_testlist(testpath, args.failing_test, testids):
+    if _passed_with_testlist(testpath, failing_test, testids):
         print('-> expected failure -- but it passed?')
         return 1
     else:
@@ -203,18 +238,63 @@ def main(argv: Sequence[str] | None = None) -> int:
         part1 = testids[:pivot]
         part2 = testids[pivot:]
 
-        if _passed_with_testlist(testpath, args.failing_test, part1):
+        if _passed_with_testlist(testpath, failing_test, part1):
             testids = part2
         else:
             testids = part1
 
     # step 5: make sure it still fails
     print('double checking we found it...')
-    if _passed_with_testlist(testpath, args.failing_test, testids):
+    if _passed_with_testlist(testpath, failing_test, testids):
         raise AssertionError('unreachable? unexpected pass? report a bug?')
     else:
         print(f'-> the polluting test is: {testids[0]}')
         return 0
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+
+    mutex1 = parser.add_mutually_exclusive_group(required=True)
+    mutex1.add_argument(
+        '--fuzz',
+        action='store_true',
+        help='repeatedly shuffle the test suite searching for failures',
+    )
+    mutex1.add_argument(
+        '--failing-test',
+        help=(
+            'the identifier of the failing test, '
+            'for example `tests/my_test.py::test_name_here`'
+        ),
+    )
+
+    mutex2 = parser.add_mutually_exclusive_group(required=True)
+    mutex2.add_argument(
+        '--tests',
+        help='where tests will be discovered from, often `--tests=tests/',
+    )
+    mutex2.add_argument(
+        '--testids-file',
+        help='optional pre-discovered test ids (one per line)',
+    )
+    args = parser.parse_args(argv)
+
+    # step 1: discover all the tests
+    print('discovering all tests...')
+    if args.testids_file:
+        testids = _parse_testids_file(args.testids_file)
+        print(f'-> pre-discovered {len(testids)} tests!')
+    else:
+        testids = _discover_tests(args.tests)
+        print(f'-> discovered {len(testids)} tests!')
+
+    testpath = _common_testpath(testids)
+
+    if args.fuzz:
+        return _fuzz(testpath, testids, args.tests, args.testids_file)
+    else:
+        return _bisect(testpath, args.failing_test, testids)
 
 
 if __name__ == '__main__':
