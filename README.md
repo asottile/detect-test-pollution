@@ -13,6 +13,8 @@ a tool to detect test pollution
 
 ## what is test pollution?
 
+[![video about test pollution](https://camo.githubusercontent.com/e72348a4fa8369247e9e2f1441de4424065fc42d6d53aad6ef703e264b820c3d/68747470733a2f2f696d672e796f75747562652e636f6d2f76692f4652746569616e61504d6f2f6d7164656661756c742e6a7067)](https://youtu.be/FRteianaPMo)
+
 test pollution is where a test fails due to the side-effects of some other test
 in the test suite.
 
