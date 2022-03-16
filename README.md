@@ -100,8 +100,9 @@ detect-test-pollution \
     --testids-file ./testids
 ```
 
-you can usually get a list of testids via `pytest --collect-only -qq` (though
-you'll need to strip the last two lines off since they are unrelated output).
+you can usually get a list of testids via `pytest --collect-only -q` (though
+you'll need to strip some unrelated lines at the end, such as timing and
+warning info).
 
 then `detect-test-pollution` will bisect the list of tests to find the failing
 one.  here's an example bisection from a [bug in pytest]
