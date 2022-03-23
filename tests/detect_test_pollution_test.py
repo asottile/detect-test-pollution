@@ -107,8 +107,16 @@ def test_parse_testids_file_blank_line(tmp_path):
 def test_discover_tests(tmp_path):
     f = tmp_path.joinpath('t.py')
     f.write_text('def test_one(): pass\ndef test_two(): pass\n')
+    f2 = tmp_path.joinpath('q.py')
+    f2.write_text('def test_one(): pass\ndef test_two(): pass\n')
 
-    assert _discover_tests(f) == ['t.py::test_one', 't.py::test_two']
+    assert _discover_tests([f]) == ['t.py::test_one', 't.py::test_two']
+    assert _discover_tests([f, f2]) == [
+        't.py::test_one',
+        't.py::test_two',
+        'q.py::test_one',
+        'q.py::test_two',
+    ]
 
 
 @pytest.mark.parametrize(
@@ -138,10 +146,15 @@ def test_passed_with_testlist_passing(tmp_path):
 
 
 def test_format_cmd_with_tests():
-    ret = _format_cmd('t.py::test1', 'this t.py', None)
+    ret = _format_cmd('t.py::test1', ['this t.py'], None)
     assert ret == (
         'detect-test-pollution --failing-test t.py::test1 '
         "--tests 'this t.py'"
+    )
+    ret = _format_cmd('t.py::test1', ['this t.py', 'this q.py'], None)
+    assert ret == (
+        'detect-test-pollution --failing-test t.py::test1 '
+        "--tests 'this t.py' --tests 'this q.py'"
     )
 
 
@@ -315,20 +328,29 @@ def test_k2():
     assert k == 2
 '''
 
-    f = tmpdir.join('t.py')
+    f = tmpdir.join('test_t.py')
     f.write(src)
 
+    src2 = '''\
+def test_other():
+    pass
+'''
+
+    f2 = tmpdir.join('test_q.py')
+    f2.write(src2)
+
     with tmpdir.as_cwd():
-        ret = main(('--fuzz', '--tests', str(f)))
+        ret = main(('--fuzz', '--tests', str(f), '--tests', str(f2)))
     assert ret == 1
 
     out, err = capsys.readouterr()
     assert out == f'''\
 discovering all tests...
--> discovered 4 tests!
+-> discovered 5 tests!
 run 1...
 -> OK!
 run 2...
 -> found failing test!
-try `detect-test-pollution --failing-test t.py::test_k --tests {f}`!
+try `detect-test-pollution --failing-test test_t.py::test_k \
+--tests {f} --tests {f2}`!
 '''

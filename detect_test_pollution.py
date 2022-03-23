@@ -84,11 +84,11 @@ def _parse_testids_file(filename: str) -> list[str]:
         return [line for line in f.read().splitlines() if line]
 
 
-def _discover_tests(path: str) -> list[str]:
+def _discover_tests(paths: list[str]) -> list[str]:
     with tempfile.TemporaryDirectory() as tmpdir:
         testids_filename = os.path.join(tmpdir, 'testids.txt')
         _run_pytest(
-            path,
+            *paths,
             # use `=` to avoid pytest's basedir detection
             f'{TESTIDS_OUTPUT_OPTION}={testids_filename}',
             '--collect-only',
@@ -131,12 +131,13 @@ def _passed_with_testlist(path: str, test: str, testids: list[str]) -> bool:
 
 def _format_cmd(
         victim: str,
-        cmd_tests: str | None,
+        cmd_tests: list[str] | None,
         cmd_testids_filename: str | None,
 ) -> str:
     args = ['detect-test-pollution', '--failing-test', victim]
     if cmd_tests is not None:
-        args.extend(('--tests', cmd_tests))
+        for test in cmd_tests:
+            args.extend(('--tests', test))
     elif cmd_testids_filename is not None:
         args.extend(('--testids-filename', cmd_testids_filename))
     else:
@@ -147,7 +148,7 @@ def _format_cmd(
 def _fuzz(
         testpath: str,
         testids: list[str],
-        cmd_tests: str | None,
+        cmd_tests: list[str] | None,
         cmd_testids_filename: str | None,
 ) -> int:
     # make shuffling "deterministic"
@@ -264,6 +265,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     mutex2 = parser.add_mutually_exclusive_group(required=True)
     mutex2.add_argument(
         '--tests',
+        action='append',
         help='where tests will be discovered from, often `--tests=tests/',
     )
     mutex2.add_argument(
