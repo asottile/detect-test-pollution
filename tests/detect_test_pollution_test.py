@@ -8,6 +8,7 @@ import detect_test_pollution
 from detect_test_pollution import _common_testpath
 from detect_test_pollution import _discover_tests
 from detect_test_pollution import _format_cmd
+from detect_test_pollution import _individual_testpaths
 from detect_test_pollution import _parse_testids_file
 from detect_test_pollution import _passed_with_testlist
 from detect_test_pollution import main
@@ -125,16 +126,44 @@ def test_common_testpath(inputs, expected):
     assert _common_testpath(inputs) == expected
 
 
+@pytest.mark.parametrize(
+    ('inputs', 'expected'),
+    (
+        ([], ['.']),
+        (['a', 'a/b'], ['a', 'a/b']),
+        (['a', 'b'], ['a', 'b']),
+        (['a/b/c', 'a/b/d', 'a/b/e'], ['a/b/c', 'a/b/d', 'a/b/e']),
+        (['a/b/c', 'a/b/c'], ['a/b/c']),
+    ),
+)
+def test_individual_testpaths(inputs, expected):
+    assert _individual_testpaths(inputs) == expected
+
+
 def test_passed_with_testlist_failing(tmp_path):
     f = tmp_path.joinpath('t.py')
     f.write_text('def test1(): pass\ndef test2(): assert False\n')
-    assert _passed_with_testlist(f, 't.py::test2', ['t.py::test1']) is False
+    f2 = tmp_path.joinpath('q.py')
+    f2.write_text('def test1(): pass\ndef test2(): pass\n')
+    assert _passed_with_testlist([f], 't.py::test2', ['t.py::test1']) is False
+    assert _passed_with_testlist(
+        [f, f2],
+        't.py::test2',
+        ['t.py::test1', 'q.py::test1', 'q.py::test2'],
+    ) is False
 
 
 def test_passed_with_testlist_passing(tmp_path):
     f = tmp_path.joinpath('t.py')
     f.write_text('def test1(): pass\ndef test2(): pass\n')
-    assert _passed_with_testlist(f, 't.py::test2', ['t.py::test1']) is True
+    f2 = tmp_path.joinpath('q.py')
+    f2.write_text('def test1(): pass\ndef test2(): pass\n')
+    assert _passed_with_testlist([f], 't.py::test2', ['t.py::test1']) is True
+    assert _passed_with_testlist(
+        [f, f2],
+        't.py::test2',
+        ['t.py::test1', 'q.py::test1', 'q.py::test2'],
+    ) is True
 
 
 def test_format_cmd_with_tests():
@@ -278,6 +307,7 @@ def test_k2():
         ret = main((
             '--testids-file', str(testlist),
             '--failing-test', 't.py::test_k',
+            '--individual-testpaths',
         ))
     assert ret == 0
 

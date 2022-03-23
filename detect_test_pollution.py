@@ -105,7 +105,18 @@ def _common_testpath(testids: list[str]) -> str:
         return os.path.commonpath(paths) or '.'
 
 
-def _passed_with_testlist(path: str, test: str, testids: list[str]) -> bool:
+def _individual_testpaths(testids: list[str]) -> list[str]:
+    paths = {testid.split('::')[0] for testid in testids}
+    if not paths:
+        return ['.']
+    return sorted(paths)
+
+
+def _passed_with_testlist(
+    paths: list[str],
+    test: str,
+    testids: list[str],
+) -> bool:
     with tempfile.TemporaryDirectory() as tmpdir:
         testids_filename = os.path.join(tmpdir, 'testids.txt')
         with open(testids_filename, 'w') as f:
@@ -117,7 +128,7 @@ def _passed_with_testlist(path: str, test: str, testids: list[str]) -> bool:
 
         with contextlib.suppress(subprocess.CalledProcessError):
             _run_pytest(
-                path,
+                *paths,
                 # use `=` to avoid pytest's basedir detection
                 f'{TESTIDS_INPUT_OPTION}={testids_filename}',
                 f'{RESULTS_OUTPUT_OPTION}={results_json}',
@@ -145,7 +156,7 @@ def _format_cmd(
 
 
 def _fuzz(
-        testpath: str,
+        testpaths: list[str],
         testids: list[str],
         cmd_tests: str | None,
         cmd_testids_filename: str | None,
@@ -170,7 +181,7 @@ def _fuzz(
 
             try:
                 _run_pytest(
-                    testpath,
+                    *testpaths,
                     '--maxfail=1',
                     # use `=` to avoid pytest's basedir detection
                     f'{TESTIDS_INPUT_OPTION}={testids_filename}',
@@ -193,14 +204,18 @@ def _fuzz(
             return 1
 
 
-def _bisect(testpath: str, failing_test: str, testids: list[str]) -> int:
+def _bisect(
+    testpaths: list[str],
+    failing_test: str,
+    testids: list[str],
+) -> int:
     if failing_test not in testids:
         print('-> failing test was not part of discovered tests!')
         return 1
 
     # step 2: make sure the failing test passes on its own
     print('ensuring test passes by itself...')
-    if _passed_with_testlist(testpath, failing_test, []):
+    if _passed_with_testlist(testpaths, failing_test, []):
         print('-> OK!')
     else:
         print('-> test failed! (output printed above)')
@@ -211,7 +226,7 @@ def _bisect(testpath: str, failing_test: str, testids: list[str]) -> int:
 
     # step 3: ensure test fails
     print('ensuring test fails with test group...')
-    if _passed_with_testlist(testpath, failing_test, testids):
+    if _passed_with_testlist(testpaths, failing_test, testids):
         print('-> expected failure -- but it passed?')
         return 1
     else:
@@ -230,14 +245,14 @@ def _bisect(testpath: str, failing_test: str, testids: list[str]) -> int:
         part1 = testids[:pivot]
         part2 = testids[pivot:]
 
-        if _passed_with_testlist(testpath, failing_test, part1):
+        if _passed_with_testlist(testpaths, failing_test, part1):
             testids = part2
         else:
             testids = part1
 
     # step 5: make sure it still fails
     print('double checking we found it...')
-    if _passed_with_testlist(testpath, failing_test, testids):
+    if _passed_with_testlist(testpaths, failing_test, testids):
         raise AssertionError('unreachable? unexpected pass? report a bug?')
     else:
         print(f'-> the polluting test is: {testids[0]}')
@@ -246,6 +261,16 @@ def _bisect(testpath: str, failing_test: str, testids: list[str]) -> int:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
+
+    parser.add_argument(
+        '-i',
+        '--individual-testpaths',
+        action='store_true',
+        help=(
+            'Use individual testpaths instead of common one for pytest runs. '
+            'Useful if not all test dependencies are installed.'
+        ),
+    )
 
     mutex1 = parser.add_mutually_exclusive_group(required=True)
     mutex1.add_argument(
@@ -281,12 +306,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         testids = _discover_tests(args.tests)
         print(f'-> discovered {len(testids)} tests!')
 
-    testpath = _common_testpath(testids)
+    if args.individual_testpaths:
+        testpaths = _individual_testpaths(testids)
+    else:
+        testpaths = [_common_testpath(testids)]
 
     if args.fuzz:
-        return _fuzz(testpath, testids, args.tests, args.testids_file)
+        return _fuzz(testpaths, testids, args.tests, args.testids_file)
     else:
-        return _bisect(testpath, args.failing_test, testids)
+        return _bisect(testpaths, args.failing_test, testids)
 
 
 if __name__ == '__main__':
