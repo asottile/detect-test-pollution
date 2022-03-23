@@ -97,14 +97,6 @@ def _discover_tests(path: str) -> list[str]:
         return _parse_testids_file(testids_filename)
 
 
-def _common_testpath(testids: list[str]) -> str:
-    paths = [testid.split('::')[0] for testid in testids]
-    if not paths:
-        return '.'
-    else:
-        return os.path.commonpath(paths) or '.'
-
-
 def _individual_testpaths(testids: list[str]) -> list[str]:
     paths = {testid.split('::')[0] for testid in testids}
     if not paths:
@@ -262,16 +254,6 @@ def _bisect(
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
 
-    parser.add_argument(
-        '-i',
-        '--individual-testpaths',
-        action='store_true',
-        help=(
-            'Use individual testpaths instead of common one for pytest runs. '
-            'Useful if not all test dependencies are installed.'
-        ),
-    )
-
     mutex1 = parser.add_mutually_exclusive_group(required=True)
     mutex1.add_argument(
         '--fuzz',
@@ -306,10 +288,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         testids = _discover_tests(args.tests)
         print(f'-> discovered {len(testids)} tests!')
 
-    if args.individual_testpaths:
-        testpaths = _individual_testpaths(testids)
-    else:
-        testpaths = [_common_testpath(testids)]
+    testpaths = _individual_testpaths(testids)
 
     if args.fuzz:
         return _fuzz(testpaths, testids, args.tests, args.testids_file)

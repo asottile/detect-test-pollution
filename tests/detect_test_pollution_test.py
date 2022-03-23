@@ -5,7 +5,6 @@ import json
 import pytest
 
 import detect_test_pollution
-from detect_test_pollution import _common_testpath
 from detect_test_pollution import _discover_tests
 from detect_test_pollution import _format_cmd
 from detect_test_pollution import _individual_testpaths
@@ -110,20 +109,6 @@ def test_discover_tests(tmp_path):
     f.write_text('def test_one(): pass\ndef test_two(): pass\n')
 
     assert _discover_tests(f) == ['t.py::test_one', 't.py::test_two']
-
-
-@pytest.mark.parametrize(
-    ('inputs', 'expected'),
-    (
-        ([], '.'),
-        (['a', 'a/b'], 'a'),
-        (['a', 'b'], '.'),
-        (['a/b/c', 'a/b/d', 'a/b/e'], 'a/b'),
-        (['a/b/c', 'a/b/c'], 'a/b/c'),
-    ),
-)
-def test_common_testpath(inputs, expected):
-    assert _common_testpath(inputs) == expected
 
 
 @pytest.mark.parametrize(
@@ -307,7 +292,6 @@ def test_k2():
         ret = main((
             '--testids-file', str(testlist),
             '--failing-test', 't.py::test_k',
-            '--individual-testpaths',
         ))
     assert ret == 0
 
