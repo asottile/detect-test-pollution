@@ -48,9 +48,6 @@ def pytest_collection_modifyitems(
                 f.write(f'{item.nodeid}\n')
 
 
-_PYTEST_KEY = pytest.StashKey[__name__]()
-
-
 class CollectResults:
     def __init__(self, filename: str) -> None:
         self.filename = filename
@@ -63,6 +60,9 @@ class CollectResults:
     def pytest_terminal_summary(self, config: pytest.Config) -> None:
         with open(self.filename, 'w') as f:
             f.write(json.dumps(self.results, indent=2))
+
+
+_PYTEST_KEY = pytest.StashKey[CollectResults]()
 
 
 def pytest_configure(config: pytest.Config) -> None:
