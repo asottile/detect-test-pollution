@@ -48,9 +48,6 @@ def pytest_collection_modifyitems(
                 f.write(f'{item.nodeid}\n')
 
 
-_PYTEST_KEY = pytest.StashKey[__name__]()
-
-
 class CollectResults:
     def __init__(self, filename: str) -> None:
         self.filename = filename
@@ -64,19 +61,14 @@ class CollectResults:
         with open(self.filename, 'w') as f:
             f.write(json.dumps(self.results, indent=2))
 
+    def pytest_unconfigure(self, config: pytest.Config) -> None:
+        config.pluginmanager.unregister(self)
+
 
 def pytest_configure(config: pytest.Config) -> None:
     results_filename = config.getoption(RESULTS_OUTPUT_OPTION)
     if results_filename is not None:
-        config.stash[_PYTEST_KEY] = CollectResults(results_filename)
-        config.pluginmanager.register(config.stash[_PYTEST_KEY])
-
-
-def pytest_unconfigure(config: pytest.Config) -> None:
-    plugin = config.stash.get(_PYTEST_KEY, None)
-    if plugin is not None:
-        del config.stash[_PYTEST_KEY]
-        config.pluginmanager.unregister(plugin)
+        config.pluginmanager.register(CollectResults(results_filename))
 
 
 def _run_pytest(*args: str) -> None:
