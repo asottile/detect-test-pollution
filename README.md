@@ -77,6 +77,8 @@ which error when run in order.
 
 ## usage
 
+[![video about using detect-test-pollution](https://user-images.githubusercontent.com/857609/162450980-1e45db95-b6dc-4783-9bcb-7a3dc02bb1e0.jpg)](https://www.youtube.com/watch?v=w5O4zTusyJ0)
+
 once you have identified a failing test, you'll be able to feed it into
 `detect-test-pollution` to find the causal test.
 
