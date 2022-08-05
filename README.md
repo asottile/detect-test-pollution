@@ -9,7 +9,9 @@ a tool to detect test pollution
 
 ## installation
 
-`pip install detect-test-pollution`
+```bash
+pip install detect-test-pollution
+```
 
 ## what is test pollution?
 
