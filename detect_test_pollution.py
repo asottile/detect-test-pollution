@@ -141,7 +141,7 @@ def _format_cmd(
         args.extend(('--testids-filename', cmd_testids_filename))
     else:
         raise AssertionError('unreachable?')
-    return ' '.join(shlex.quote(part) for part in args)
+    return shlex.join(args)
 
 
 def _fuzz(
