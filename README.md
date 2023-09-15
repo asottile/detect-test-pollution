@@ -169,6 +169,14 @@ try `detect-test-pollution --failing-test t.py::test_k --tests t.py`!
 afterwards you can use the normal mode of `detect-test-pollution` to find the
 failing pair.
 
+## extra pytest options
+
+any argument or option can be passed directly to pytest by adding them at the end of command:
+
+```console
+detect-test-pollution --fuzz --tests tests -m 'not qt_test'
+```
+
 ## supported test runners
 
 at the moment only `pytest` is supported -- though in theory the tool could
