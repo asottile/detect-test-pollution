@@ -74,7 +74,13 @@ def pytest_configure(config: pytest.Config) -> None:
 def _run_pytest(extra_pytest_opts: list[str], *args: str) -> None:
     # XXX: this is potentially difficult to debug? maybe --verbose?
     subprocess.check_call(
-        (sys.executable, '-mpytest', *PYTEST_OPTIONS, *extra_pytest_opts, *args),
+        (
+            sys.executable,
+            '-mpytest',
+            *PYTEST_OPTIONS,
+            *extra_pytest_opts,
+            *args,
+        ),
         stdout=subprocess.DEVNULL,
     )
 
@@ -106,7 +112,9 @@ def _common_testpath(testids: list[str]) -> str:
         return os.path.commonpath(paths) or '.'
 
 
-def _passed_with_testlist(path: str, test: str, testids: list[str], extra_pytest_opts: list[str]) -> bool:
+def _passed_with_testlist(
+        path: str, test: str, testids: list[str], extra_pytest_opts: list[str],
+) -> bool:
     with tempfile.TemporaryDirectory() as tmpdir:
         testids_filename = os.path.join(tmpdir, 'testids.txt')
         with open(testids_filename, 'w') as f:
@@ -197,7 +205,12 @@ def _fuzz(
             return 1
 
 
-def _bisect(testpath: str, failing_test: str, testids: list[str], extra_pytest_opts: list[str]) -> int:
+def _bisect(
+        testpath: str,
+        failing_test: str,
+        testids: list[str],
+        extra_pytest_opts: list[str],
+) -> int:
     if failing_test not in testids:
         print('-> failing test was not part of discovered tests!')
         return 1
@@ -215,7 +228,9 @@ def _bisect(testpath: str, failing_test: str, testids: list[str], extra_pytest_o
 
     # step 3: ensure test fails
     print('ensuring test fails with test group...')
-    if _passed_with_testlist(testpath, failing_test, testids, extra_pytest_opts):
+    if _passed_with_testlist(
+            testpath, failing_test, testids, extra_pytest_opts,
+    ):
         print('-> expected failure -- but it passed?')
         return 1
     else:
@@ -234,14 +249,18 @@ def _bisect(testpath: str, failing_test: str, testids: list[str], extra_pytest_o
         part1 = testids[:pivot]
         part2 = testids[pivot:]
 
-        if _passed_with_testlist(testpath, failing_test, part1, extra_pytest_opts):
+        if _passed_with_testlist(
+                testpath, failing_test, part1, extra_pytest_opts,
+        ):
             testids = part2
         else:
             testids = part1
 
     # step 5: make sure it still fails
     print('double checking we found it...')
-    if _passed_with_testlist(testpath, failing_test, testids, extra_pytest_opts):
+    if _passed_with_testlist(
+            testpath, failing_test, testids, extra_pytest_opts,
+    ):
         raise AssertionError('unreachable? unexpected pass? report a bug?')
     else:
         print(f'-> the polluting test is: {testids[0]}')
@@ -288,7 +307,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     testpath = _common_testpath(testids)
 
     if args.fuzz:
-        return _fuzz(testpath, testids, args.tests, args.testids_file, extra_pytest_opts)
+        return _fuzz(
+            testpath,
+            testids,
+            args.tests,
+            args.testids_file,
+            extra_pytest_opts,
+        )
     else:
         return _bisect(testpath, args.failing_test, testids, extra_pytest_opts)
 
