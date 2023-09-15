@@ -71,10 +71,10 @@ def pytest_configure(config: pytest.Config) -> None:
         config.pluginmanager.register(CollectResults(results_filename))
 
 
-def _run_pytest(*args: str) -> None:
+def _run_pytest(extra_pytest_opts: list[str], *args: str) -> None:
     # XXX: this is potentially difficult to debug? maybe --verbose?
     subprocess.check_call(
-        (sys.executable, '-mpytest', *PYTEST_OPTIONS, *args),
+        (sys.executable, '-mpytest', *PYTEST_OPTIONS, *extra_pytest_opts, *args),
         stdout=subprocess.DEVNULL,
     )
 
@@ -84,10 +84,11 @@ def _parse_testids_file(filename: str) -> list[str]:
         return [line for line in f.read().splitlines() if line]
 
 
-def _discover_tests(path: str) -> list[str]:
+def _discover_tests(path: str, extra_pytest_opts: list[str]) -> list[str]:
     with tempfile.TemporaryDirectory() as tmpdir:
         testids_filename = os.path.join(tmpdir, 'testids.txt')
         _run_pytest(
+            extra_pytest_opts,
             path,
             # use `=` to avoid pytest's basedir detection
             f'{TESTIDS_OUTPUT_OPTION}={testids_filename}',
@@ -105,7 +106,7 @@ def _common_testpath(testids: list[str]) -> str:
         return os.path.commonpath(paths) or '.'
 
 
-def _passed_with_testlist(path: str, test: str, testids: list[str]) -> bool:
+def _passed_with_testlist(path: str, test: str, testids: list[str], extra_pytest_opts: list[str]) -> bool:
     with tempfile.TemporaryDirectory() as tmpdir:
         testids_filename = os.path.join(tmpdir, 'testids.txt')
         with open(testids_filename, 'w') as f:
@@ -117,6 +118,7 @@ def _passed_with_testlist(path: str, test: str, testids: list[str]) -> bool:
 
         with contextlib.suppress(subprocess.CalledProcessError):
             _run_pytest(
+                extra_pytest_opts,
                 path,
                 # use `=` to avoid pytest's basedir detection
                 f'{TESTIDS_INPUT_OPTION}={testids_filename}',
@@ -149,6 +151,7 @@ def _fuzz(
         testids: list[str],
         cmd_tests: str | None,
         cmd_testids_filename: str | None,
+        extra_pytest_opts: list[str],
 ) -> int:
     # make shuffling "deterministic"
     r = random.Random()
@@ -170,6 +173,7 @@ def _fuzz(
 
             try:
                 _run_pytest(
+                    extra_pytest_opts,
                     testpath,
                     '--maxfail=1',
                     # use `=` to avoid pytest's basedir detection
@@ -193,14 +197,14 @@ def _fuzz(
             return 1
 
 
-def _bisect(testpath: str, failing_test: str, testids: list[str]) -> int:
+def _bisect(testpath: str, failing_test: str, testids: list[str], extra_pytest_opts: list[str]) -> int:
     if failing_test not in testids:
         print('-> failing test was not part of discovered tests!')
         return 1
 
     # step 2: make sure the failing test passes on its own
     print('ensuring test passes by itself...')
-    if _passed_with_testlist(testpath, failing_test, []):
+    if _passed_with_testlist(testpath, failing_test, [], extra_pytest_opts):
         print('-> OK!')
     else:
         print('-> test failed! (output printed above)')
@@ -211,7 +215,7 @@ def _bisect(testpath: str, failing_test: str, testids: list[str]) -> int:
 
     # step 3: ensure test fails
     print('ensuring test fails with test group...')
-    if _passed_with_testlist(testpath, failing_test, testids):
+    if _passed_with_testlist(testpath, failing_test, testids, extra_pytest_opts):
         print('-> expected failure -- but it passed?')
         return 1
     else:
@@ -230,14 +234,14 @@ def _bisect(testpath: str, failing_test: str, testids: list[str]) -> int:
         part1 = testids[:pivot]
         part2 = testids[pivot:]
 
-        if _passed_with_testlist(testpath, failing_test, part1):
+        if _passed_with_testlist(testpath, failing_test, part1, extra_pytest_opts):
             testids = part2
         else:
             testids = part1
 
     # step 5: make sure it still fails
     print('double checking we found it...')
-    if _passed_with_testlist(testpath, failing_test, testids):
+    if _passed_with_testlist(testpath, failing_test, testids, extra_pytest_opts):
         raise AssertionError('unreachable? unexpected pass? report a bug?')
     else:
         print(f'-> the polluting test is: {testids[0]}')
@@ -270,7 +274,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         '--testids-file',
         help='optional pre-discovered test ids (one per line)',
     )
-    args = parser.parse_args(argv)
+    args, extra_pytest_opts = parser.parse_known_args()
 
     # step 1: discover all the tests
     print('discovering all tests...')
@@ -278,15 +282,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         testids = _parse_testids_file(args.testids_file)
         print(f'-> pre-discovered {len(testids)} tests!')
     else:
-        testids = _discover_tests(args.tests)
+        testids = _discover_tests(args.tests, extra_pytest_opts)
         print(f'-> discovered {len(testids)} tests!')
 
     testpath = _common_testpath(testids)
 
     if args.fuzz:
-        return _fuzz(testpath, testids, args.tests, args.testids_file)
+        return _fuzz(testpath, testids, args.tests, args.testids_file, extra_pytest_opts)
     else:
-        return _bisect(testpath, args.failing_test, testids)
+        return _bisect(testpath, args.failing_test, testids, extra_pytest_opts)
 
 
 if __name__ == '__main__':
