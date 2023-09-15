@@ -94,21 +94,21 @@ def test_parse_testids_file(tmp_path):
     f = tmp_path.joinpath('t.json')
     f.write_text('test.py::test1\ntest.py::test2')
 
-    assert _parse_testids_file(f) == ['test.py::test1', 'test.py::test2']
+    assert _parse_testids_file(str(f)) == ['test.py::test1', 'test.py::test2']
 
 
 def test_parse_testids_file_blank_line(tmp_path):
     f = tmp_path.joinpath('t.json')
     f.write_text('test.py::test1\n\ntest.py::test2')
 
-    assert _parse_testids_file(f) == ['test.py::test1', 'test.py::test2']
+    assert _parse_testids_file(str(f)) == ['test.py::test1', 'test.py::test2']
 
 
 def test_discover_tests(tmp_path):
     f = tmp_path.joinpath('t.py')
     f.write_text('def test_one(): pass\ndef test_two(): pass\n')
 
-    assert _discover_tests(f) == ['t.py::test_one', 't.py::test_two']
+    assert _discover_tests(str(f), []) == ['t.py::test_one', 't.py::test_two']
 
 
 @pytest.mark.parametrize(
@@ -128,13 +128,13 @@ def test_common_testpath(inputs, expected):
 def test_passed_with_testlist_failing(tmp_path):
     f = tmp_path.joinpath('t.py')
     f.write_text('def test1(): pass\ndef test2(): assert False\n')
-    assert _passed_with_testlist(f, 't.py::test2', ['t.py::test1']) is False
+    assert _passed_with_testlist(str(f), 't.py::test2', ['t.py::test1'], []) is False
 
 
 def test_passed_with_testlist_passing(tmp_path):
     f = tmp_path.joinpath('t.py')
     f.write_text('def test1(): pass\ndef test2(): pass\n')
-    assert _passed_with_testlist(f, 't.py::test2', ['t.py::test1']) is True
+    assert _passed_with_testlist(str(f), 't.py::test2', ['t.py::test1'], []) is True
 
 
 def test_format_cmd_with_tests():
