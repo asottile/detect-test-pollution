@@ -90,6 +90,35 @@ def test2(): pass
     }
 
 
+def test_pytest_plugin_results_output_error(tmp_path, pytester):
+    src = '''\
+import pytest
+
+def test1(): pass
+
+@pytest.fixture
+def e(): assert False
+def test2(e): pass
+'''
+
+    out = tmp_path.joinpath('out.json')
+    res = pytester.inline_runsource(
+        src,
+        '-p', detect_test_pollution.__name__,
+        # use `=` to avoid pytest's basedir detection
+        f'--dtp-results-output-file={out}',
+    )
+    assert res.ret == 1
+
+    with open(out) as f:
+        contents = json.load(f)
+
+    assert contents == {
+        'test_pytest_plugin_results_output_error.py::test1': True,
+        'test_pytest_plugin_results_output_error.py::test2': False,
+    }
+
+
 def test_parse_testids_file(tmp_path):
     f = tmp_path.joinpath('t.json')
     f.write_text('test.py::test1\ntest.py::test2')
