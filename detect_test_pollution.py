@@ -56,6 +56,8 @@ class CollectResults:
     def pytest_runtest_logreport(self, report: pytest.TestReport) -> None:
         if report.when == 'call':
             self.results[report.nodeid] = report.outcome == 'passed'
+        elif report.outcome == 'failed':
+            self.results[report.nodeid] = False
 
     def pytest_terminal_summary(self, config: pytest.Config) -> None:
         with open(self.filename, 'w') as f:
