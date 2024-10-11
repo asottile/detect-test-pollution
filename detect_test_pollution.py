@@ -10,7 +10,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
-from typing import Sequence
+from collections.abc import Sequence
 
 import pytest
 
