@@ -14,7 +14,7 @@ pip install detect-test-pollution
 
 ## what is test pollution?
 
-[![video about test pollution](https://camo.githubusercontent.com/e72348a4fa8369247e9e2f1441de4424065fc42d6d53aad6ef703e264b820c3d/68747470733a2f2f696d672e796f75747562652e636f6d2f76692f4652746569616e61504d6f2f6d7164656661756c742e6a7067)](https://youtu.be/FRteianaPMo)
+[![video about test pollution](https://i.ytimg.com/vi/FRteianaPMo/mqdefault.jpg)](https://youtu.be/FRteianaPMo)
 
 test pollution is where a test fails due to the side-effects of some other test
 in the test suite.
@@ -78,7 +78,7 @@ which error when run in order.
 
 ## usage
 
-[![video about using detect-test-pollution](https://user-images.githubusercontent.com/857609/162450980-1e45db95-b6dc-4783-9bcb-7a3dc02bb1e0.jpg)](https://www.youtube.com/watch?v=w5O4zTusyJ0)
+[![video about using detect-test-pollution](https://i.ytimg.com/vi/w5O4zTusyJ0/mqdefault.jpg)](https://www.youtube.com/watch?v=w5O4zTusyJ0)
 
 once you have identified a failing test, you'll be able to feed it into
 `detect-test-pollution` to find the causal test.
