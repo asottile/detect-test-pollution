@@ -6,11 +6,8 @@ import pytest
 
 import detect_test_pollution
 from detect_test_pollution import _common_testpath
-from detect_test_pollution import _discover_tests
-from detect_test_pollution import _format_cmd
-from detect_test_pollution import _parse_testids_file
-from detect_test_pollution import _passed_with_testlist
 from detect_test_pollution import main
+from detect_test_pollution import PytestFramework
 
 
 def test_pytest_plugin_does_not_crash_when_not_enabled(pytester):
@@ -119,25 +116,33 @@ def test2(e): pass
     }
 
 
-def test_parse_testids_file(tmp_path):
+@pytest.fixture
+def pytest_framework():
+    with PytestFramework() as framework:
+        yield framework
+
+
+def test_parse_testids_file(tmp_path, pytest_framework):
     f = tmp_path.joinpath('t.json')
     f.write_text('test.py::test1\ntest.py::test2')
+    actual = pytest_framework._parse_testids_file(f)
+    assert actual == ['test.py::test1', 'test.py::test2']
 
-    assert _parse_testids_file(f) == ['test.py::test1', 'test.py::test2']
 
-
-def test_parse_testids_file_blank_line(tmp_path):
+def test_parse_testids_file_blank_line(tmp_path, pytest_framework):
     f = tmp_path.joinpath('t.json')
     f.write_text('test.py::test1\n\ntest.py::test2')
 
-    assert _parse_testids_file(f) == ['test.py::test1', 'test.py::test2']
+    actual = pytest_framework._parse_testids_file(f)
+    assert actual == ['test.py::test1', 'test.py::test2']
 
 
-def test_discover_tests(tmp_path):
+def test_discover_tests(tmp_path, pytest_framework):
     f = tmp_path.joinpath('t.py')
     f.write_text('def test_one(): pass\ndef test_two(): pass\n')
 
-    assert _discover_tests(f) == ['t.py::test_one', 't.py::test_two']
+    discovered_tests = pytest_framework.discover_tests(f)
+    assert discovered_tests == ['t.py::test_one', 't.py::test_two']
 
 
 @pytest.mark.parametrize(
@@ -154,28 +159,35 @@ def test_common_testpath(inputs, expected):
     assert _common_testpath(inputs) == expected
 
 
-def test_passed_with_testlist_failing(tmp_path):
+def test_passed_with_testlist_failing(tmp_path, pytest_framework):
     f = tmp_path.joinpath('t.py')
     f.write_text('def test1(): pass\ndef test2(): assert False\n')
-    assert _passed_with_testlist(f, 't.py::test2', ['t.py::test1']) is False
+    passed = pytest_framework.does_test_list_pass(
+        f, 't.py::test2', ['t.py::test1'],
+    )
+    assert passed is False
 
 
-def test_passed_with_testlist_passing(tmp_path):
+def test_passed_with_testlist_passing(tmp_path, pytest_framework):
     f = tmp_path.joinpath('t.py')
     f.write_text('def test1(): pass\ndef test2(): pass\n')
-    assert _passed_with_testlist(f, 't.py::test2', ['t.py::test1']) is True
+
+    passed = pytest_framework.does_test_list_pass(
+        f, 't.py::test2', ['t.py::test1'],
+    )
+    assert passed is True
 
 
-def test_format_cmd_with_tests():
-    ret = _format_cmd('t.py::test1', 'this t.py', None)
+def test_create_cmd_tests(pytest_framework):
+    ret = pytest_framework.create_cmd_to_run('t.py::test1', 'this t.py', None)
     assert ret == (
         'detect-test-pollution --failing-test t.py::test1 '
         "--tests 'this t.py'"
     )
 
 
-def test_format_cmd_with_testids_filename():
-    ret = _format_cmd('t.py::test1', None, 't.txt')
+def test_create_cmd_with_testids_filename(pytest_framework):
+    ret = pytest_framework.create_cmd_to_run('t.py::test1', None, 't.txt')
     assert ret == (
         'detect-test-pollution --failing-test t.py::test1 '
         '--testids-filename t.txt'

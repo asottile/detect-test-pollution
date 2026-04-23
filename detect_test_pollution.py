@@ -11,8 +11,12 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Sequence
+from typing import Protocol
+from typing import TYPE_CHECKING
 
-import pytest
+if TYPE_CHECKING:
+    import pytest
+    from types import TracebackType
 
 TESTIDS_INPUT_OPTION = '--dtp-testids-input-file'
 TESTIDS_OUTPUT_OPTION = '--dtp-testids-output-file'
@@ -40,7 +44,7 @@ def pytest_collection_modifyitems(
     write_option = config.getoption(TESTIDS_OUTPUT_OPTION)
     if read_option is not None:
         by_id = {item.nodeid: item for item in items}
-        testids = _parse_testids_file(read_option)
+        testids = PytestFramework()._parse_testids_file(read_option)
         items[:] = [by_id[testid] for testid in testids]
     elif write_option is not None:
         with open(write_option, 'w', encoding='UTF-8') as f:
@@ -73,52 +77,137 @@ def pytest_configure(config: pytest.Config) -> None:
         config.pluginmanager.register(CollectResults(results_filename))
 
 
-def _run_pytest(*args: str) -> None:
-    # XXX: this is potentially difficult to debug? maybe --verbose?
-    subprocess.check_call(
-        (sys.executable, '-mpytest', *PYTEST_OPTIONS, *args),
-        stdout=subprocess.DEVNULL,
-    )
+class FrameWork(Protocol):
+
+    def discover_tests(self, path: str) -> list[str]:
+        ...
+
+    def __enter__(self) -> FrameWork:
+        ...
+
+    def __exit__(
+        self,
+        exception_type: type[BaseException] | None,
+        value: BaseException | None, traceback: TracebackType | None,
+    ) -> None:
+        ...
+
+    def does_test_list_pass(
+        self,
+        path: str,
+        test: str,
+        testids: list[str],
+    ) -> bool:
+        ...
+
+    def create_cmd_to_run(
+        self,
+        victim: str,
+        cmd_tests: str | None,
+        cmd_testids_filename: str | None,
+    ) -> str:
+        ...
+
+    def fast_fail(
+        self,
+            path: str,
+            testids: list[str],
+            rng: random.Random,
+    ) -> str:
+        ...
 
 
-def _parse_testids_file(filename: str) -> list[str]:
-    with open(filename) as f:
-        return [line for line in f.read().splitlines() if line]
+class PytestFramework:
 
+    def __init__(self) -> None:
+        self._tempdir_manager = tempfile.TemporaryDirectory()
+        self._tempdir: None | str = None
 
-def _discover_tests(path: str) -> list[str]:
-    with tempfile.TemporaryDirectory() as tmpdir:
-        testids_filename = os.path.join(tmpdir, 'testids.txt')
-        _run_pytest(
+    def __enter__(self) -> PytestFramework:
+        self._tempdir = self._tempdir_manager.__enter__()
+        return self
+
+    def __exit__(
+        self,
+        exception_type: type[BaseException] | None,
+        value: BaseException | None, traceback: TracebackType | None,
+    ) -> None:
+        self._tempdir_manager.__exit__(exception_type, value, traceback)
+
+    def _run_pytest(self, *args: str) -> None:
+        # XXX: this is potentially difficult to debug? maybe --verbose?
+        subprocess.check_call(
+            (sys.executable, '-mpytest', *PYTEST_OPTIONS, *args),
+            stdout=subprocess.DEVNULL,
+        )
+
+    def _parse_testids_file(self, filename: str) -> list[str]:
+        with open(filename) as f:
+            return [line for line in f.read().splitlines() if line]
+
+    def fast_fail(
+        self,
+            path: str,
+            testids: list[str],
+            prng: random.Random,
+    ) -> str:
+        """Runs tests, retruns first test that failed or empty string"""
+        assert self._tempdir is not None
+        testids_filename = os.path.join(self._tempdir, 'testids.txt')
+        results_json = os.path.join(self._tempdir, 'results.json')
+
+        prng.shuffle(testids)
+
+        with open(testids_filename, 'w') as f:
+            for testid in testids:
+                f.write(f'{testid}\n')
+        try:
+            self._run_pytest(
+                path,
+                '--maxfail=1',
+                # use `=` to avoid pytest's basedir detection
+                f'{TESTIDS_INPUT_OPTION}={testids_filename}',
+                f'{RESULTS_OUTPUT_OPTION}={results_json}',
+            )
+        except subprocess.CalledProcessError:
+            with open(results_json) as f:
+                contents = json.load(f)
+
+            testids = list(contents)
+            return testids[-1]
+        else:
+            return ''
+
+    def discover_tests(self, path: str) -> list[str]:
+        assert self._tempdir is not None
+        testids_filename = os.path.join(self._tempdir, 'testids.txt')
+        self._run_pytest(
             path,
             # use `=` to avoid pytest's basedir detection
             f'{TESTIDS_OUTPUT_OPTION}={testids_filename}',
             '--collect-only',
         )
 
-        return _parse_testids_file(testids_filename)
+        return self._parse_testids_file(testids_filename)
 
+    def does_test_list_pass(
+        self,
+            path: str,
+            test: str | None,
+            testids: list[str],
+    ) -> bool:
+        assert self._tempdir is not None
+        testids_filename = os.path.join(self._tempdir, 'testids.txt')
 
-def _common_testpath(testids: list[str]) -> str:
-    paths = [testid.split('::')[0] for testid in testids]
-    if not paths:
-        return '.'
-    else:
-        return os.path.commonpath(paths) or '.'
-
-
-def _passed_with_testlist(path: str, test: str, testids: list[str]) -> bool:
-    with tempfile.TemporaryDirectory() as tmpdir:
-        testids_filename = os.path.join(tmpdir, 'testids.txt')
         with open(testids_filename, 'w') as f:
             for testid in testids:
                 f.write(f'{testid}\n')
             f.write(f'{test}\n')
 
-        results_json = os.path.join(tmpdir, 'results.json')
+        results_json = os.path.join(self._tempdir, 'results.json')
 
         with contextlib.suppress(subprocess.CalledProcessError):
-            _run_pytest(
+            self._run_pytest(
                 path,
                 # use `=` to avoid pytest's basedir detection
                 f'{TESTIDS_INPUT_OPTION}={testids_filename}',
@@ -130,20 +219,28 @@ def _passed_with_testlist(path: str, test: str, testids: list[str]) -> bool:
 
         return contents[test]
 
+    def create_cmd_to_run(
+            self,
+            victim: str,
+            cmd_tests: str | None,
+            cmd_testids_filename: str | None,
+    ) -> str:
+        args = ['detect-test-pollution', '--failing-test', victim]
+        if cmd_tests is not None:
+            args.extend(('--tests', cmd_tests))
+        elif cmd_testids_filename is not None:
+            args.extend(('--testids-filename', cmd_testids_filename))
+        else:
+            raise AssertionError('unreachable?')
+        return shlex.join(args)
 
-def _format_cmd(
-        victim: str,
-        cmd_tests: str | None,
-        cmd_testids_filename: str | None,
-) -> str:
-    args = ['detect-test-pollution', '--failing-test', victim]
-    if cmd_tests is not None:
-        args.extend(('--tests', cmd_tests))
-    elif cmd_testids_filename is not None:
-        args.extend(('--testids-filename', cmd_testids_filename))
+
+def _common_testpath(testids: list[str]) -> str:
+    paths = [testid.split('::')[0] for testid in testids]
+    if not paths:
+        return '.'
     else:
-        raise AssertionError('unreachable?')
-    return shlex.join(args)
+        return os.path.commonpath(paths) or '.'
 
 
 def _fuzz(
@@ -151,58 +248,48 @@ def _fuzz(
         testids: list[str],
         cmd_tests: str | None,
         cmd_testids_filename: str | None,
+        framework: FrameWork,
 ) -> int:
     # make shuffling "deterministic"
     r = random.Random()
     r.seed(1542676187, version=2)
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        testids_filename = os.path.join(tmpdir, 'testids.txt')
-        results_json = os.path.join(tmpdir, 'results.json')
+    i = 0
+    while True:
+        i += 1
+        print(f'run {i}...')
 
-        i = 0
-        while True:
-            i += 1
-            print(f'run {i}...')
+        failing_test = framework.fast_fail(testpath, testids, r)
+        if failing_test == '':
+            print('-> OK!')
+            continue
+        else:
+            print('-> found failing test!')
 
-            r.shuffle(testids)
-            with open(testids_filename, 'w') as f:
-                for testid in testids:
-                    f.write(f'{testid}\n')
+        last_test_ran = testids.index(failing_test)
+        testids = testids[:last_test_ran]
+        victim = failing_test
 
-            try:
-                _run_pytest(
-                    testpath,
-                    '--maxfail=1',
-                    # use `=` to avoid pytest's basedir detection
-                    f'{TESTIDS_INPUT_OPTION}={testids_filename}',
-                    f'{RESULTS_OUTPUT_OPTION}={results_json}',
-                )
-            except subprocess.CalledProcessError:
-                print('-> found failing test!')
-            else:
-                print('-> OK!')
-                continue
-
-            with open(results_json) as f:
-                contents = json.load(f)
-
-            testids = list(contents)
-            victim = testids[-1]
-
-            cmd = _format_cmd(victim, cmd_tests, cmd_testids_filename)
-            print(f'try `{cmd}`!')
-            return 1
+        cmd = framework.create_cmd_to_run(
+            victim, cmd_tests, cmd_testids_filename,
+        )
+        print(f'try `{cmd}`!')
+        return 1
 
 
-def _bisect(testpath: str, failing_test: str, testids: list[str]) -> int:
+def _bisect(
+    testpath: str,
+    failing_test: str,
+    testids: list[str],
+    framework: FrameWork,
+) -> int:
     if failing_test not in testids:
         print('-> failing test was not part of discovered tests!')
         return 1
 
     # step 2: make sure the failing test passes on its own
     print('ensuring test passes by itself...')
-    if _passed_with_testlist(testpath, failing_test, []):
+    if framework.does_test_list_pass(testpath, failing_test, []):
         print('-> OK!')
     else:
         print('-> test failed! (output printed above)')
@@ -213,7 +300,7 @@ def _bisect(testpath: str, failing_test: str, testids: list[str]) -> int:
 
     # step 3: ensure test fails
     print('ensuring test fails with test group...')
-    if _passed_with_testlist(testpath, failing_test, testids):
+    if framework.does_test_list_pass(testpath, failing_test, testids):
         print('-> expected failure -- but it passed?')
         return 1
     else:
@@ -232,14 +319,14 @@ def _bisect(testpath: str, failing_test: str, testids: list[str]) -> int:
         part1 = testids[:pivot]
         part2 = testids[pivot:]
 
-        if _passed_with_testlist(testpath, failing_test, part1):
+        if framework.does_test_list_pass(testpath, failing_test, part1):
             testids = part2
         else:
             testids = part1
 
     # step 5: make sure it still fails
     print('double checking we found it...')
-    if _passed_with_testlist(testpath, failing_test, testids):
+    if framework.does_test_list_pass(testpath, failing_test, testids):
         raise AssertionError('unreachable? unexpected pass? report a bug?')
     else:
         print(f'-> the polluting test is: {testids[0]}')
@@ -274,21 +361,33 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    # step 1: discover all the tests
-    print('discovering all tests...')
-    if args.testids_file:
-        testids = _parse_testids_file(args.testids_file)
-        print(f'-> pre-discovered {len(testids)} tests!')
-    else:
-        testids = _discover_tests(args.tests)
-        print(f'-> discovered {len(testids)} tests!')
+    with PytestFramework() as pytest_framework:
+        # step 1: discover all the tests
+        print('discovering all tests...')
+        if args.testids_file:
+            testids = pytest_framework._parse_testids_file(args.testids_file)
+            print(f'-> pre-discovered {len(testids)} tests!')
+        else:
+            testids = pytest_framework.discover_tests(args.tests)
+            print(f'-> discovered {len(testids)} tests!')
 
-    testpath = _common_testpath(testids)
+        testpath = _common_testpath(testids)
 
-    if args.fuzz:
-        return _fuzz(testpath, testids, args.tests, args.testids_file)
-    else:
-        return _bisect(testpath, args.failing_test, testids)
+        if args.fuzz:
+            return _fuzz(
+                testpath,
+                testids,
+                args.tests,
+                args.testids_file,
+                pytest_framework,
+            )
+        else:
+            return _bisect(
+                testpath,
+                args.failing_test,
+                testids,
+                pytest_framework,
+            )
 
 
 if __name__ == '__main__':
